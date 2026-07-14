@@ -1,0 +1,11 @@
+services:
+  kfs:
+    volumes:
+      - .:/volumes
+    build:
+      context: .
+      x-bake:
+        platforms:
+          - linux/386
+    environment:
+      - DEBUG=${DEBUG}

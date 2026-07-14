@@ -1,24 +1,74 @@
-CC      = i686-elf-gcc
-AS      = i686-elf-as
-CFLAGS  = -fno-builtin -fno-exceptions -fno-stack-protector -nostdlib -nodefaultlibs -ffreestanding -O2 -Wall -Wextra
+NAME = kfs.elf
+BUILD_DIR = build
+ASM_SRC = src/boot.asm src/kernel.asm src/gdt.asm
+ASM_OBJ = $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/gdt.o
 
-all: qemu
+ISO = $(BUILD_DIR)/kernel.iso
+AS = nasm
+LD = ld
+ASFLAGS = -f elf32 -I src/
+LDFLAGS = -m elf_i386 -T linker.ld
 
-boot.o: boot.s
-	$(AS) boot.s -o boot.o
+QEMU_DISPLAY ?=
+QEMU = qemu-system-i386
+QEMU_FLAGS = $(if $(QEMU_DISPLAY),-display $(QEMU_DISPLAY))
 
-kernel.o: kernel.c kernel.h
-	$(CC) -c kernel.c -o kernel.o $(CFLAGS)
+all: $(BUILD_DIR)/$(NAME)
 
-kfs-1.bin: boot.o kernel.o
-	$(CC) -T linker.ld -o kfs-1.bin -ffreestanding -O2 -nostdlib boot.o kernel.o -lgcc
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
-kfs-1.iso: kfs-1.bin
-	cp kfs-1.bin boot/kfs-1.bin
-	-grub-mkrescue -o kfs-1.iso .
+$(BUILD_DIR)/boot.o: src/boot.asm | $(BUILD_DIR)
+	$(AS) $(ASFLAGS) $< -o $@
 
-qemu: kfs-1.iso
-	qemu-system-i386 -cdrom kfs-1.iso
+$(BUILD_DIR)/gdt.o: src/gdt.asm | $(BUILD_DIR)
+	$(AS) $(ASFLAGS) $< -o $@
+
+$(BUILD_DIR)/kernel.o: src/kernel.asm | $(BUILD_DIR)
+	$(AS) $(ASFLAGS) $< -o $@
+
+$(BUILD_DIR)/$(NAME): $(ASM_OBJ)
+	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJ)
+
+# verify multiboot header
+check: $(BUILD_DIR)/$(NAME)
+	grub-file --is-x86-multiboot $(BUILD_DIR)/$(NAME) && echo "[OK] multiboot v1 header"
+
+# direct kernel boot
+run: $(BUILD_DIR)/$(NAME)
+	$(QEMU) $(QEMU_FLAGS) -kernel $(BUILD_DIR)/$(NAME)
+
+# builds a GRUB-bootable ISO
+# iso: $(BUILD_DIR)/$(NAME)
+# 	mkdir -p iso/boot/grub
+# 	cp $(BUILD_DIR)/$(NAME) iso/boot/kfs.elf
+# 	grub-mkrescue -o $(ISO) iso
+
+
+# boot via the GRUB ISO
+# run-iso: iso
+# 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO)
+
+# direct kernel boot under GDB stub
+# debug: $(BUILD_DIR)/$(NAME)
+# 	$(QEMU) $(QEMU_FLAGS) -kernel $(BUILD_DIR)/$(NAME) -s -S
+
+# same as run-iso but exposes the QEMU monitor on stdio
+# run-monitor: iso
+# 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -monitor stdio
+
+# GDT placed at 0x800 + multiboot present
+mem-check: $(BUILD_DIR)/$(NAME)
+	@nm $(BUILD_DIR)/$(NAME) | grep -E "gdt_start|gdt_end|gdtr|KERNEL|USER"
+	@objdump -h $(BUILD_DIR)/$(NAME) | grep -E "\.gdt|\.text|\.multiboot"
+	@nm -n $(BUILD_DIR)/$(NAME) | grep -E "gdt_start|gdt_end|gdtr|_start"
 
 clean:
-	rm -f *.o kfs-1.bin kfs-1.iso boot/kfs-1.bin
+	rm -rf $(BUILD_DIR)
+
+fclean: clean
+	rm -f iso/boot/kfs.elf
+
+re: fclean all
+
+.PHONY: all check run mem-check clean fclean re # iso debug run-iso run-monitor

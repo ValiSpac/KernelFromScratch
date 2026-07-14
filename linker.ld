@@ -1,37 +1,30 @@
-/* The bootloader will start executing at the symbol */
+/* Linker will execute starting from this symbol */
 ENTRY(_start)
 
-/* Place sections of the object file in the final kernel image*/
+/* define the sections here */
 SECTIONS
 {
-    /* Start offset */
-    . = 2M;
+	/* go to physical address 800 for gdt */
+	. = 0x00000800;
+	/* global descriptor table location */
+	.gdt : { *(.gdt) }
 
-    /* First put the multiboot header, as it is required to be put very early
-       in the image or the bootloader won't recognize the file format.
-       Next we'll put the .text section. */
-    .text BLOCK(4K) : ALIGN(4K)
-    {
-        *(.multiboot)
-        *(.text)
-    }
 
-    /* Read-only data. */
-    .rodata BLOCK(4K) : ALIGN(4K)
-    {
-        *(.rodata)
-    }
+	/* start loading the kernel at the physical address 1MiB, standard for x86 kernels */
+	. = 1M;
 
-    /* Read-write data (initialized) */
-    .data BLOCK(4K) : ALIGN(4K)
-    {
-        *(.data)
-    }
+	/* put multiboot header early so grub can find it near beginning of iso */
+	.multiboot : { *(.multiboot) }
 
-    /* Read-write data (uninitialized) and stack */
-    .bss BLOCK(4K) : ALIGN(4K)
-    {
-        *(COMMON)
-        *(.bss)
-    }
+	/* section for all executable code */
+	.text : { *(.text) }
+
+	/* read-only data (strings, consts, gdt/idt, etc...) */
+	.rodata : { *(.rodata) }
+
+	/* initialized writable data */
+	.data : { *(.data) }
+
+	/* uninitialized writable data */
+	.bss : { *(.bss) *(COMMON) }
 }
